@@ -1,0 +1,19 @@
+# Assumptions and decisions
+
+Every choice the brief left open, with the options I considered. Rows 1-6 are the auction (Part A), rows 7-13 the battery and reporting (Part B).
+
+| # | Decision | Options considered | What I chose | Why |
+|---|---|---|---|---|
+| 1 | Gas price units: p/therm to £/MWh | Ignore plant efficiency; include it | bid = (p/therm ÷ 100) × 34.121 ÷ efficiency | 1 MWh of gas energy is 34.121 therms, and a less efficient plant burns more gas per MWh of electricity. Check: 70 p/therm at 35% efficiency gives £68.24/MWh |
+| 2 | Marginal plant runs at part capacity | All-or-nothing plants; part capacity | The marginal plant runs at part capacity | Output is continuous, so the last plant only produces what is still needed |
+| 3 | Hours and energy | Treat MW and MWh separately | 1 hour at X MW = X MWh | Every period is one hour, so no conversion is needed. Wind and solar MWh = capacity × load factor |
+| 4 | Too much renewables: price and curtailment | Negative price; cut only wind; cut all renewables equally | Price £0, all renewables cut by the same %, shown as `unused_mwh` (curtailment) | All renewables bid £0, so none has priority. The data has no negative bids |
+| 5 | Not enough power: price and unserved energy | Price = highest gas bid; error; a named scarcity price | Price £6,000/MWh (`SCARCITY_PRICE`), shortfall shown as `unmet_mwh`, marginal plant shown as SCARCITY | The highest gas bid would hide the shortage. £6,000 is an assumption near the UK value of lost load, one named constant that is easy to change |
+| 6 | Equal bids: how output is shared | First listed; random; equal split; pro-rata | Pro-rata by offered MWh within the tied group. Bids closer than 1e-6 count as equal | Fair and repeatable. A tolerance avoids float equality bugs |
+| 7 | Battery size, power and efficiency | Other sizes; losses only on charging | 2,000 MW, 8,000 MWh (4 hours), 90% round trip split as about 95% each way | Splitting the loss equally is the simplest symmetric model |
+| 8 | Battery strategy | Fixed time-of-day rule; daily look-ahead; full optimisation | Daily look-ahead: knows each day's no-battery prices, pairs cheapest charge hours with dearest discharge hours in 500 MWh blocks, a pair must earn at least £1/MWh after losses. An hour charges or discharges, never both | More robust than a fixed rule and explainable in a few lines. Full optimisation is the next step. Perfect foresight within a day is optimistic |
+| 9 | Battery bid when discharging | Bid £0; bid the expected high price; bid break-even | Weighted-average cost of stored energy ÷ 95% | It never sells at a loss, and the auction sets the price |
+| 10 | Battery start and end charge | Start empty; end full; no end rule | Starts 50% full (4,000 MWh). Each day's plan ends with the energy it started with. The first stored energy is costed at the week's average non-shortage price | Stops the battery just draining its starting charge. Avoids a free start |
+| 11 | Battery charging limits | Let it compete freely for supply | Charging counts as extra demand but is capped at supply that would otherwise go unused at the same price | Charging then cannot raise the price or cause a shortage |
+| 12 | Battery effect on price | Assume prices do not change | Re-run the auction every hour with the battery in it | The battery moves prices, and a price-taker model would ignore that |
+| 13 | Reporting | Average over all hours only | Average price shown with and without shortage hours. Mix % is of MWh dispatched. Load factors are looked up by the `hour` column, never by row position | Shortage hours at £6,000 swamp the average. Lookup by hour is safe if rows are reordered |
