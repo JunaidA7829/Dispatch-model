@@ -166,9 +166,63 @@ def plot_marginal(table: pd.DataFrame, path: Path) -> None:
     plt.close(fig)
 
 
+def compare_scenarios(without: pd.DataFrame, with_battery: pd.DataFrame, profit: float) -> list:
+    """Rows of (label, without, with battery, decimals to show). Battery profit is only defined with the battery."""
+    a = summarise(without)
+    b = summarise(with_battery)
+    return [
+        ("Average price (£/MWh)", a["avg_price"], b["avg_price"], 2),
+        ("Average price excl. shortage (£/MWh)", a["avg_price_no_shortage"], b["avg_price_no_shortage"], 2),
+        ("Median price (£/MWh)", without["price_gbp_per_mwh"].median(), with_battery["price_gbp_per_mwh"].median(), 2),
+        ("Highest price (£/MWh)", a["max_price"], b["max_price"], 2),
+        ("Shortage hours", a["shortage_hours"], b["shortage_hours"], 0),
+        ("Unmet MWh", a["unmet_mwh"], b["unmet_mwh"], 0),
+        ("Unused renewable MWh", a["unused_mwh"], b["unused_mwh"], 0),
+        ("Gas MWh", without["gas_mwh"].sum(), with_battery["gas_mwh"].sum(), 0),
+        ("Battery profit (£)", 0, profit, 0),
+    ]
+
+
+def format_comparison(rows: list) -> str:
+    lines = [f"{'Metric':<38}{'Without':>14}{'With battery':>16}"]
+    for label, before, after, decimals in rows:
+        lines.append(f"{label:<38}{before:>14,.{decimals}f}{after:>16,.{decimals}f}")
+    return "\n".join(lines)
+
+
+def plot_battery(without: pd.DataFrame, with_battery: pd.DataFrame, path: Path) -> None:
+    fig, (top, bottom) = plt.subplots(2, 1, figsize=(11, 6.5), sharex=True, facecolor=SURFACE,
+                                      gridspec_kw={"height_ratios": [3, 1.3], "hspace": 0.12})
+    for i, (left, right) in enumerate(_shortage_spans(without)):
+        label = "Shortage hours without battery" if i == 0 else None
+        top.axvspan(left, right, color=ALERT, alpha=0.12, linewidth=0, label=label)
+    # shortage hours are priced at SCARCITY_PRICE, far off the scale: leave a gap in each line
+    price_without = without["price_gbp_per_mwh"].where(without["status"] != "shortage")
+    price_with = with_battery["price_gbp_per_mwh"].where(with_battery["status"] != "shortage")
+    top.plot(without["hour"], price_without, color=BLUE, linewidth=2, label="Without battery")
+    top.plot(with_battery["hour"], price_with, color=ORANGE, linewidth=2, label="With battery")
+    top.set_ylim(0, price_without.max() * 1.15)
+    top.set_ylabel("£/MWh", color=MUTED, fontsize=9)
+    _titles(top, "Price with and without the battery",
+            "Lines break in hours still in shortage (£6,000/MWh, off the scale).")
+    _style(top, "y")
+    top.tick_params(labelbottom=False)
+    handles, labels = top.get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, 0.06), ncol=3,
+               frameon=False, fontsize=10, labelcolor=INK_2)  # under the day labels
+
+    bottom.plot(with_battery["hour"], with_battery["soc_mwh"], color=ORANGE, linewidth=2)
+    bottom.set_ylim(0, 8000)  # battery size is 8,000 MWh
+    bottom.set_ylabel("Stored MWh", color=MUTED, fontsize=9)
+    bottom.yaxis.set_major_formatter(matplotlib.ticker.StrMethodFormatter("{x:,.0f}"))
+    _style(bottom, "y")
+    _day_ticks(bottom)
+    fig.savefig(path, dpi=150, facecolor=SURFACE, bbox_inches="tight")
+    plt.close(fig)
+
+
 def save_charts(table: pd.DataFrame, folder: Path) -> None:
     folder.mkdir(parents=True, exist_ok=True)
     plot_price(table, folder / "chart1_price.png")
     plot_mix(table, folder / "chart2_mix.png")
     plot_marginal(table, folder / "chart3_marginal.png")
-
