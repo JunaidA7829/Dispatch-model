@@ -153,10 +153,3 @@ def run_all(data: MarketData) -> pd.DataFrame:
         rows.append(row)
     return pd.DataFrame(rows)
 
-
-def show_hour(res: dict) -> None:
-    print("plant  MWh")
-    for name, mwh in res["accepted"].items():
-        print(f"{name:<5}  {mwh:>5.1f}")
-    who = ", ".join(res["marginal"]) if res["marginal"] else "none"
-    print(f"price {res['price']} | marginal {who} | unused {res['unused']:.1f} | unmet {res['unmet']}")
