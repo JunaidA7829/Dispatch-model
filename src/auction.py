@@ -7,6 +7,7 @@ SCARCITY_PRICE = 6000  # prices per MWh charged when demand can't be met
 TOL = 1e-6             # prices per MWh closer than this count as equal
 
 Offer = tuple[str, float, float]
+BATTERY_NAME = "battery"  # the battery discharging appears as an offer with this name
 NAME, PRICE, MWH = 0, 1, 2
 
 def clear_hour(offers: list[Offer], demand: float) -> dict:
@@ -80,63 +81,76 @@ def build_offers(data: MarketData, hour: int) -> list[Offer]:
     return offers
 
 
-def run_all(data: MarketData) -> pd.DataFrame:
-    """One row per hour. Mix % is of MWh dispatched, so it sums to 100."""
+def run_hour(data: MarketData, hour: int, demand: float, offers: list[Offer],
+             charge_mwh: float = 0) -> tuple[dict, dict]:
+    """Clears one hour. Returns (table row, raw clear_hour result).
+    demand is what consumers use; battery charging is extra demand to the auction."""
     wind_names = set(data.wind_plants["name"])
     solar_names = set(data.solar_plants["name"])
+    result = clear_hour(offers, demand + charge_mwh)
+
+    wind_mwh = 0
+    solar_mwh = 0
+    gas_mwh = 0
+    battery_mwh = 0
+    for name, mwh in result["accepted"].items():
+        if name in wind_names:
+            wind_mwh += mwh
+        elif name in solar_names:
+            solar_mwh += mwh
+        elif name == BATTERY_NAME:
+            battery_mwh += mwh
+        else:
+            gas_mwh += mwh  # every other plant is gas
+    produced_mwh = wind_mwh + solar_mwh + gas_mwh + battery_mwh
+
+    if result["unmet"] > TOL:
+        status = "shortage"
+    elif result["unused"] > TOL:
+        status = "surplus"
+    else:
+        status = "normal"
+
+    if status == "shortage":
+        marginal_plant = "SCARCITY"
+    elif result["price"] <= TOL:
+        marginal_plant = "renewables"  # only £0 offers set the price
+    else:
+        marginal_plant = "+".join(result["marginal"])  # a tie shows as gas1+gas2
+
+    pct_per_mwh = 0  # % of produced MWh per 1 MWh; stays 0 if nothing was produced
+    if produced_mwh > 0:
+        pct_per_mwh = 100 / produced_mwh
+
+    row = {
+        "hour": hour,
+        "status": status,
+        "demand_mwh": demand,
+        "price_gbp_per_mwh": result["price"],
+        "marginal_plant": marginal_plant,
+        "wind_mwh": wind_mwh,
+        "solar_mwh": solar_mwh,
+        "gas_mwh": gas_mwh,
+        "battery_mwh": battery_mwh,
+        "charge_mwh": charge_mwh,
+        "wind_pct": wind_mwh * pct_per_mwh,
+        "solar_pct": solar_mwh * pct_per_mwh,
+        "gas_pct": gas_mwh * pct_per_mwh,
+        "battery_pct": battery_mwh * pct_per_mwh,
+        "unused_mwh": result["unused"],
+        "unmet_mwh": result["unmet"],
+    }
+    return row, result
+
+
+def run_all(data: MarketData) -> pd.DataFrame:
+    """One row per hour, no battery. Mix % is of MWh dispatched, so it sums to 100."""
     rows = []
-
-    for _, row in data.demand.iterrows():
-        hour = int(row["hour"])
-        demand = row["demand"]
-        result = clear_hour(build_offers(data, hour), demand)
-
-        wind_mwh = 0
-        solar_mwh = 0
-        gas_mwh = 0
-        for name, mwh in result["accepted"].items():
-            if name in wind_names:
-                wind_mwh += mwh
-            elif name in solar_names:
-                solar_mwh += mwh
-            else:
-                gas_mwh += mwh  # every other plant is gas
-        produced_mwh = wind_mwh + solar_mwh + gas_mwh
-
-        if result["unmet"] > TOL:
-            status = "shortage"
-        elif result["unused"] > TOL:
-            status = "surplus"
-        else:
-            status = "normal"
-
-        if status == "shortage":
-            marginal_plant = "SCARCITY"
-        elif result["price"] <= TOL:
-            marginal_plant = "renewables"  # only £0 offers set the price
-        else:
-            marginal_plant = "+".join(result["marginal"])  # a tie shows as gas1+gas2
-
-        pct_per_mwh = 0  # % of produced MWh per 1 MWh; stays 0 if nothing was produced
-        if produced_mwh > 0:
-            pct_per_mwh = 100 / produced_mwh
-
-        rows.append({
-            "hour": hour,
-            "status": status,
-            "demand_mwh": demand,
-            "price_gbp_per_mwh": result["price"],
-            "marginal_plant": marginal_plant,
-            "wind_mwh": wind_mwh,
-            "solar_mwh": solar_mwh,
-            "gas_mwh": gas_mwh,
-            "wind_pct": wind_mwh * pct_per_mwh,
-            "solar_pct": solar_mwh * pct_per_mwh,
-            "gas_pct": gas_mwh * pct_per_mwh,
-            "unused_mwh": result["unused"],
-            "unmet_mwh": result["unmet"],
-        })
-
+    for _, demand_row in data.demand.iterrows():
+        hour = int(demand_row["hour"])
+        offers = build_offers(data, hour)
+        row, _ = run_hour(data, hour, demand_row["demand"], offers)
+        rows.append(row)
     return pd.DataFrame(rows)
 
 
