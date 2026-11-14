@@ -7,7 +7,7 @@ This program works out the electricity price and who generates what, hour by hou
 You need Python 3.11 or newer.
 
 ```
-git clone <repo-url>
+git clone https://github.com/JunaidA7829/Dispatch-model.git
 cd Dispatch-model
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
